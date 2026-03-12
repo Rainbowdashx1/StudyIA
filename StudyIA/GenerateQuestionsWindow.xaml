@@ -1,0 +1,117 @@
+<Window x:Class="StudyIA.GenerateQuestionsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        Title="Generar preguntas de evaluaci&#xF3;n" Height="580" Width="700"
+        MinWidth="580" MinHeight="480"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResize">
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>  <!-- Token -->
+            <RowDefinition Height="12"/>
+            <RowDefinition Height="Auto"/>  <!-- Etiqueta tabla -->
+            <RowDefinition Height="*"/>     <!-- Tabla archivos -->
+            <RowDefinition Height="12"/>
+            <RowDefinition Height="Auto"/>  <!-- Cantidad + resumen -->
+            <RowDefinition Height="12"/>
+            <RowDefinition Height="Auto"/>  <!-- Progreso -->
+            <RowDefinition Height="12"/>
+            <RowDefinition Height="Auto"/>  <!-- Botones -->
+        </Grid.RowDefinitions>
+
+        <!-- ── Token ── -->
+        <StackPanel Grid.Row="0">
+            <TextBlock Text="Token de GitHub (PAT con acceso a GitHub Models):"
+                       FontWeight="SemiBold" Margin="0,0,0,5"/>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBox x:Name="TokenBox"
+                         Grid.Column="0" Height="30"
+                         VerticalContentAlignment="Center" Padding="6,0"
+                         FontFamily="Consolas"
+                         ToolTip="GitHub PAT &#x2192; github.com/settings/tokens &#x2192; Generate new token (classic). No necesita permisos especiales."/>
+                <Button x:Name="SaveTokenBtn"
+                        Grid.Column="1" Content="Guardar"
+                        Width="80" Height="30" Margin="8,0,0,0"
+                        Click="SaveToken_Click"/>
+            </Grid>
+            <TextBlock x:Name="TokenStatus"
+                       FontSize="11" Foreground="#555555"
+                       Margin="0,4,0,0" Height="16"/>
+        </StackPanel>
+
+        <!-- ── Etiqueta tabla ── -->
+        <TextBlock Grid.Row="2"
+                   Text="Archivos PDF en la carpeta y preguntas existentes:"
+                   FontWeight="SemiBold"/>
+
+        <!-- ── Tabla de archivos ── -->
+        <DataGrid Grid.Row="3" x:Name="FilesGrid"
+                  AutoGenerateColumns="False"
+                  IsReadOnly="True"
+                  CanUserAddRows="False"
+                  CanUserDeleteRows="False"
+                  GridLinesVisibility="Horizontal"
+                  BorderThickness="1" BorderBrush="#CCCCCC"
+                  RowBackground="White" AlternatingRowBackground="#F9F9F9"
+                  HeadersVisibility="Column"
+                  SelectionMode="Single">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Archivo"    Binding="{Binding FileName}"     Width="*" MinWidth="160"/>
+                <DataGridTextColumn Header="Preguntas"  Binding="{Binding CountDisplay}" Width="130"/>
+            </DataGrid.Columns>
+        </DataGrid>
+
+        <!-- ── Cantidad deseada + resumen ── -->
+        <StackPanel Grid.Row="5" Margin="0,0,0,0">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,0,6">
+                <TextBlock Text="Total de preguntas deseadas:"
+                           VerticalAlignment="Center" Margin="0,0,8,0"/>
+                <TextBox x:Name="CountBox"
+                         Text="10" Width="64" Height="28"
+                         VerticalContentAlignment="Center"
+                         TextAlignment="Center"/>
+            </StackPanel>
+            <TextBlock x:Name="ExistingText" FontSize="12" Foreground="#555555"/>
+            <TextBlock x:Name="NeededText"   FontSize="12" Foreground="#0078D4"
+                       FontWeight="SemiBold" Margin="0,2,0,0"/>
+        </StackPanel>
+
+        <!-- ── Progreso ── -->
+        <StackPanel Grid.Row="7">
+            <ProgressBar x:Name="GenProgress"
+                         Height="8" Minimum="0" Maximum="100" Value="0"
+                         Visibility="Collapsed"/>
+            <TextBlock x:Name="GenStatus"
+                       FontSize="12" Foreground="#555555"
+                       Margin="0,5,0,0" TextWrapping="Wrap" MinHeight="18"/>
+        </StackPanel>
+
+        <!-- ── Botones ── -->
+        <StackPanel Grid.Row="9" Orientation="Horizontal"
+                    HorizontalAlignment="Right">
+            <Button x:Name="CancelGenBtn"
+                    Content="Cancelar generaci&#xF3;n"
+                    Height="32" Padding="12,0"
+                    Margin="0,0,8,0"
+                    Visibility="Collapsed"
+                    Click="CancelGen_Click"/>
+            <Button x:Name="GenerateBtn"
+                    Content="&#x1F4DD;  Generar preguntas"
+                    Height="32" Padding="16,0"
+                    Margin="0,0,8,0"
+                    Background="#0078D4" Foreground="White" FontWeight="SemiBold"
+                    Click="Generate_Click"/>
+            <Button Content="Cerrar"
+                    Height="32" Width="80"
+                    Click="Close_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>
