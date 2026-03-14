@@ -5,108 +5,180 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:StudyIA"
         mc:Ignorable="d"
-        Title="StudyIA" Height="500" Width="920"
-        MinWidth="640" MinHeight="380"
+        Title="StudyIA" Height="520" Width="1000"
+        MinWidth="720" MinHeight="400"
         WindowStartupLocation="CenterScreen">
 
     <Grid>
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
-            <RowDefinition Height="Auto"/>
-        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="220" MinWidth="160"/>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
 
-        <!-- Toolbar -->
-        <Border Grid.Row="0"
-                Background="#F3F3F3"
-                BorderBrush="#CCCCCC" BorderThickness="0,0,0,1"
-                Padding="10,8">
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+        <!-- ── Panel izquierdo: lista de temarios ── -->
+        <Grid Grid.Column="0">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
 
-                <Button x:Name="BrowseBtn"
-                        Content="&#x1F4C1;  Seleccionar carpeta"
-                        Width="170" Height="32"
-                        Click="BrowseBtn_Click"/>
+            <Border Grid.Row="0"
+                    Background="#E8E8E8"
+                    BorderBrush="#CCCCCC" BorderThickness="0,0,1,1"
+                    Padding="10,8">
+                <TextBlock Text="&#x1F4DA;  Temarios"
+                           FontWeight="SemiBold" FontSize="13"/>
+            </Border>
 
-                <TextBox x:Name="FolderPathBox"
-                         Height="32" Width="330"
-                         IsReadOnly="True"
-                         VerticalContentAlignment="Center"
-                         Padding="6,0" Margin="8,0"
-                         Background="White"
-                         Text="Ninguna carpeta seleccionada&#x2026;"/>
+            <ListBox Grid.Row="1"
+                     x:Name="FoldersList"
+                     BorderThickness="0,0,1,0"
+                     BorderBrush="#CCCCCC"
+                     SelectionChanged="FoldersList_SelectionChanged"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                <ListBox.ItemContainerStyle>
+                    <Style TargetType="ListBoxItem">
+                        <Setter Property="Padding" Value="8,6"/>
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                    </Style>
+                </ListBox.ItemContainerStyle>
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel>
+                            <TextBlock Text="{Binding Name}"
+                                       FontWeight="SemiBold"
+                                       TextTrimming="CharacterEllipsis"/>
+                            <TextBlock Text="{Binding FolderPath}"
+                                       FontSize="10" Foreground="#888888"
+                                       TextTrimming="CharacterEllipsis"/>
+                        </StackPanel>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
 
-                <Button x:Name="ScanBtn"
-                        Content="&#x1F504;  Escanear"
-                        Width="110" Height="32"
-                        IsEnabled="False"
-                        Background="#0078D4" Foreground="White" FontWeight="SemiBold"
-                        Click="ScanBtn_Click"/>
-
-                <Button x:Name="QuestionsBtn"
-                        Content="&#x1F4DD;  Preguntas"
-                        Width="110" Height="32"
-                        Margin="8,0,0,0"
-                        IsEnabled="False"
-                        Click="QuestionsBtn_Click"/>
-
-                <Button x:Name="PracticeBtn"
-                        Content="&#x25B6;  Practicar"
-                        Width="100" Height="32"
-                        Margin="8,0,0,0"
-                        IsEnabled="False"
-                        Background="#107C10" Foreground="White" FontWeight="SemiBold"
-                        Click="PracticeBtn_Click"/>
-            </StackPanel>
-        </Border>
-
-        <!-- Lista de PDFs -->
-        <Grid Grid.Row="1">
-            <TextBlock x:Name="PlaceholderText"
-                       Text="Selecciona una carpeta para escanear los archivos PDF."
-                       FontSize="14" Foreground="#999999"
-                       HorizontalAlignment="Center" VerticalAlignment="Center"
-                       TextWrapping="Wrap" MaxWidth="420" TextAlignment="Center"/>
-
-            <DataGrid x:Name="PdfGrid"
-                      AutoGenerateColumns="False"
-                      IsReadOnly="True"
-                      CanUserAddRows="False"
-                      CanUserDeleteRows="False"
-                      GridLinesVisibility="Horizontal"
-                      BorderThickness="0"
-                      RowBackground="White"
-                      AlternatingRowBackground="#F9F9F9"
-                      HeadersVisibility="Column"
-                      SelectionMode="Single"
-                      Visibility="Collapsed">
-                <DataGrid.Columns>
-                    <DataGridTextColumn Header="Archivo"     Binding="{Binding FileName}"        Width="*"   MinWidth="160"/>
-                    <DataGridTextColumn Header="Estado"      Binding="{Binding Status}"           Width="110"/>
-                    <DataGridTextColumn Header="Tama&#xF1;o" Binding="{Binding FileSizeDisplay}"  Width="90"/>
-                    <DataGridTextColumn Header="SHA-256"     Binding="{Binding HashShort}"        Width="110"/>
-                    <DataGridTextColumn Header="&#xDA;ltimo scan" Binding="{Binding LastSeenDisplay}" Width="150"/>
-                </DataGrid.Columns>
-            </DataGrid>
+            <Border Grid.Row="2"
+                    Background="#F3F3F3"
+                    BorderBrush="#CCCCCC" BorderThickness="0,1,1,0"
+                    Padding="8,7">
+                <StackPanel Orientation="Horizontal">
+                    <Button x:Name="AddFolderBtn"
+                            Content="&#xFF0B; A&#xF1;adir"
+                            Height="28" Width="90"
+                            Click="AddFolderBtn_Click"/>
+                    <Button x:Name="RemoveFolderBtn"
+                            Content="&#x1F5D1; Eliminar"
+                            Height="28" Width="90"
+                            Margin="6,0,0,0"
+                            IsEnabled="False"
+                            Click="RemoveFolderBtn_Click"/>
+                </StackPanel>
+            </Border>
         </Grid>
 
-        <!-- Barra de estado -->
-        <Border Grid.Row="2"
-                Background="#F3F3F3"
-                BorderBrush="#CCCCCC" BorderThickness="0,1,0,0"
-                Padding="10,5">
-            <Grid>
-                <TextBlock x:Name="StatusText"
-                           Text="Listo"
-                           FontSize="12" Foreground="#555555"
-                           VerticalAlignment="Center"/>
+        <!-- Separador redimensionable -->
+        <GridSplitter Grid.Column="1"
+                      Width="1"
+                      Background="#CCCCCC"
+                      ResizeBehavior="PreviousAndNext"
+                      VerticalAlignment="Stretch"/>
 
-                <ProgressBar x:Name="ProgressBar"
-                             Width="180" Height="8"
-                             HorizontalAlignment="Right" VerticalAlignment="Center"
-                             IsIndeterminate="True"
-                             Visibility="Collapsed"/>
+        <!-- ── Panel derecho: PDFs del temario seleccionado ── -->
+        <Grid Grid.Column="2">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <!-- Toolbar -->
+            <Border Grid.Row="0"
+                    Background="#F3F3F3"
+                    BorderBrush="#CCCCCC" BorderThickness="0,0,0,1"
+                    Padding="10,8">
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+
+                    <TextBlock x:Name="FolderNameText"
+                               Text="&#x2190; Selecciona o a&#xF1;ade un temario"
+                               VerticalAlignment="Center"
+                               FontWeight="SemiBold" Foreground="#555555"
+                               MaxWidth="240"
+                               TextTrimming="CharacterEllipsis"
+                               Margin="0,0,12,0"/>
+
+                    <Button x:Name="ScanBtn"
+                            Content="&#x1F504;  Escanear"
+                            Width="110" Height="32"
+                            IsEnabled="False"
+                            Background="#0078D4" Foreground="White" FontWeight="SemiBold"
+                            Click="ScanBtn_Click"/>
+
+                    <Button x:Name="QuestionsBtn"
+                            Content="&#x1F4DD;  Preguntas"
+                            Width="110" Height="32"
+                            Margin="8,0,0,0"
+                            IsEnabled="False"
+                            Click="QuestionsBtn_Click"/>
+
+                    <Button x:Name="PracticeBtn"
+                            Content="&#x25B6;  Practicar"
+                            Width="100" Height="32"
+                            Margin="8,0,0,0"
+                            IsEnabled="False"
+                            Background="#107C10" Foreground="White" FontWeight="SemiBold"
+                            Click="PracticeBtn_Click"/>
+                </StackPanel>
+            </Border>
+
+            <!-- Lista de PDFs -->
+            <Grid Grid.Row="1">
+                <TextBlock x:Name="PlaceholderText"
+                           Text="Selecciona un temario para ver sus archivos PDF."
+                           FontSize="14" Foreground="#999999"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                           TextWrapping="Wrap" MaxWidth="420" TextAlignment="Center"/>
+
+                <DataGrid x:Name="PdfGrid"
+                          AutoGenerateColumns="False"
+                          IsReadOnly="True"
+                          CanUserAddRows="False"
+                          CanUserDeleteRows="False"
+                          GridLinesVisibility="Horizontal"
+                          BorderThickness="0"
+                          RowBackground="White"
+                          AlternatingRowBackground="#F9F9F9"
+                          HeadersVisibility="Column"
+                          SelectionMode="Single"
+                          Visibility="Collapsed">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Archivo"          Binding="{Binding FileName}"        Width="*"   MinWidth="160"/>
+                        <DataGridTextColumn Header="Estado"           Binding="{Binding Status}"           Width="110"/>
+                        <DataGridTextColumn Header="Tama&#xF1;o"      Binding="{Binding FileSizeDisplay}"  Width="90"/>
+                        <DataGridTextColumn Header="SHA-256"          Binding="{Binding HashShort}"        Width="110"/>
+                        <DataGridTextColumn Header="&#xDA;ltimo scan" Binding="{Binding LastSeenDisplay}"  Width="150"/>
+                    </DataGrid.Columns>
+                </DataGrid>
             </Grid>
-        </Border>
+
+            <!-- Barra de estado -->
+            <Border Grid.Row="2"
+                    Background="#F3F3F3"
+                    BorderBrush="#CCCCCC" BorderThickness="0,1,0,0"
+                    Padding="10,5">
+                <Grid>
+                    <TextBlock x:Name="StatusText"
+                               Text="Listo"
+                               FontSize="12" Foreground="#555555"
+                               VerticalAlignment="Center"/>
+
+                    <ProgressBar x:Name="ProgressBar"
+                                 Width="180" Height="8"
+                                 HorizontalAlignment="Right" VerticalAlignment="Center"
+                                 IsIndeterminate="True"
+                                 Visibility="Collapsed"/>
+                </Grid>
+            </Border>
+        </Grid>
     </Grid>
 </Window>

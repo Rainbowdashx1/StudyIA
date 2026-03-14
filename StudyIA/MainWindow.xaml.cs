@@ -1,39 +1,50 @@
 ﻿using System.IO;
 using System.Security.Cryptography;
 using System.Windows;
+using System.Windows.Controls;
 using Microsoft.Win32;
 
 namespace StudyIA;
 
 public partial class MainWindow : Window
 {
-    private string _folderPath = string.Empty;
+    private FolderRecord?    _selectedFolder;
     private readonly AppDatabase _db = new();
-
-    private const string KeyLastFolder = "LastFolder";
 
     public MainWindow()
     {
         InitializeComponent();
-        LoadSavedFolder();
+        LoadAllFolders(autoSelectFirst: true);
     }
 
-    // Restaurar carpeta guardada al iniciar
-    private async void LoadSavedFolder()
-    {
-        var saved = _db.GetSetting(KeyLastFolder);
-        if (string.IsNullOrEmpty(saved) || !Directory.Exists(saved)) return;
+    // ── Lista de temarios ──────────────────────────────────────────────────
 
-        _folderPath            = saved;
-        FolderPathBox.Text     = _folderPath;
-        ScanBtn.IsEnabled      = true;
-        QuestionsBtn.IsEnabled = true;
-        PracticeBtn.IsEnabled  = true;
+    private void LoadAllFolders(bool autoSelectFirst = false)
+    {
+        var folders = _db.GetAllFolders();
+        FoldersList.ItemsSource = folders;
+
+        if (autoSelectFirst && folders.Count > 0)
+            FoldersList.SelectedIndex = 0;
+    }
+
+    private async void FoldersList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (FoldersList.SelectedItem is not FolderRecord folder) return;
+
+        _selectedFolder           = folder;
+        FolderNameText.Text       = folder.Name;
+        FolderNameText.Foreground = System.Windows.Media.Brushes.Black;
+        ScanBtn.IsEnabled         = true;
+        QuestionsBtn.IsEnabled    = true;
+        PracticeBtn.IsEnabled     = true;
+        RemoveFolderBtn.IsEnabled = true;
         await ScanFolderAsync();
     }
 
-    // Seleccionar carpeta
-    private async void BrowseBtn_Click(object sender, RoutedEventArgs e)
+    // ── Añadir temario ─────────────────────────────────────────────────────
+
+    private async void AddFolderBtn_Click(object sender, RoutedEventArgs e)
     {
         var dialog = new OpenFolderDialog
         {
@@ -42,23 +53,64 @@ public partial class MainWindow : Window
 
         if (dialog.ShowDialog() != true) return;
 
-        _folderPath            = dialog.FolderName;
-        FolderPathBox.Text     = _folderPath;
-        ScanBtn.IsEnabled      = true;
-        QuestionsBtn.IsEnabled = true;
-        PracticeBtn.IsEnabled  = true;
-        _db.SetSetting(KeyLastFolder, _folderPath);
-        await ScanFolderAsync();
+        var path = dialog.FolderName;
+        var name = Path.GetFileName(
+            path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        if (string.IsNullOrEmpty(name)) name = path;
+
+        _db.AddFolder(name, path);
+        LoadAllFolders();
+
+        // Seleccionar el temario recién añadido
+        var folders = FoldersList.ItemsSource as List<FolderRecord>;
+        var added   = folders?.FirstOrDefault(f => f.FolderPath == path);
+        if (added is not null)
+            FoldersList.SelectedItem = added;
     }
 
-    // Escanear manualmente
+    // ── Eliminar temario ───────────────────────────────────────────────────
+
+    private void RemoveFolderBtn_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selectedFolder is null) return;
+
+        var confirm = MessageBox.Show(
+            $"¿Eliminar el temario \"{_selectedFolder.Name}\"?\n\n" +
+            "Se eliminarán también todos sus PDFs y preguntas generadas.",
+            "Confirmar eliminación",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+
+        if (confirm != MessageBoxResult.Yes) return;
+
+        _db.DeleteFolder(_selectedFolder.Id);
+        _selectedFolder = null;
+
+        FolderNameText.Text       = "← Selecciona o añade un temario";
+        FolderNameText.Foreground = System.Windows.Media.Brushes.Gray;
+        ScanBtn.IsEnabled         = false;
+        QuestionsBtn.IsEnabled    = false;
+        PracticeBtn.IsEnabled     = false;
+        RemoveFolderBtn.IsEnabled = false;
+        PdfGrid.Visibility        = Visibility.Collapsed;
+        PlaceholderText.Visibility = Visibility.Visible;
+        PlaceholderText.Text      = "Selecciona un temario para ver sus archivos PDF.";
+        StatusText.Text           = "Listo";
+
+        LoadAllFolders();
+    }
+
+    // ── Escanear ───────────────────────────────────────────────────────────
+
     private async void ScanBtn_Click(object sender, RoutedEventArgs e) =>
         await ScanFolderAsync();
 
-    // Escanear carpeta: calcular hash y registrar en BD
     private async Task ScanFolderAsync()
     {
-        var pdfs = GetPdfs();
+        if (_selectedFolder is null) return;
+
+        var folderPath = _selectedFolder.FolderPath;
+        var pdfs       = GetPdfs(folderPath);
 
         if (pdfs.Length == 0)
         {
@@ -69,12 +121,13 @@ public partial class MainWindow : Window
             return;
         }
 
-        BrowseBtn.IsEnabled     = false;
-        ScanBtn.IsEnabled       = false;
-        QuestionsBtn.IsEnabled  = false;
-        PracticeBtn.IsEnabled   = false;
-        ProgressBar.Visibility  = Visibility.Visible;
-        StatusText.Text         = "Escaneando...";
+        AddFolderBtn.IsEnabled    = false;
+        RemoveFolderBtn.IsEnabled = false;
+        ScanBtn.IsEnabled         = false;
+        QuestionsBtn.IsEnabled    = false;
+        PracticeBtn.IsEnabled     = false;
+        ProgressBar.Visibility    = Visibility.Visible;
+        StatusText.Text           = "Escaneando...";
 
         var results = new List<PdfScanResult>();
 
@@ -84,7 +137,7 @@ public partial class MainWindow : Window
             {
                 var pdf = pdfs[i];
                 StatusText.Text = $"Procesando {Path.GetFileName(pdf)}  ({i + 1}/{pdfs.Length})...";
-                var result = await Task.Run(() => ProcessPdf(pdf));
+                var result = await Task.Run(() => ProcessPdf(pdf, folderPath));
                 results.Add(result);
             }
 
@@ -105,16 +158,16 @@ public partial class MainWindow : Window
         }
         finally
         {
-            BrowseBtn.IsEnabled    = true;
-            ScanBtn.IsEnabled      = true;
-            QuestionsBtn.IsEnabled = true;
-            PracticeBtn.IsEnabled  = true;
-            ProgressBar.Visibility = Visibility.Collapsed;
+            AddFolderBtn.IsEnabled    = true;
+            RemoveFolderBtn.IsEnabled = _selectedFolder is not null;
+            ScanBtn.IsEnabled         = true;
+            QuestionsBtn.IsEnabled    = true;
+            PracticeBtn.IsEnabled     = true;
+            ProgressBar.Visibility    = Visibility.Collapsed;
         }
     }
 
-    // Calcular SHA-256 y registrar un solo registro por archivo en la BD
-    private PdfScanResult ProcessPdf(string filePath)
+    private PdfScanResult ProcessPdf(string filePath, string folderPath)
     {
         var fileName = Path.GetFileName(filePath);
         try
@@ -124,11 +177,11 @@ public partial class MainWindow : Window
             var hash         = Convert.ToHexString(SHA256.HashData(stream));
 
             var storedHash = _db.GetStoredHash(filePath);
-            var status = storedHash is null       ? PdfStatus.New
-                       : storedHash == hash       ? PdfStatus.Unchanged
-                                                  : PdfStatus.Modified;
+            var status = storedHash is null ? PdfStatus.New
+                       : storedHash == hash ? PdfStatus.Unchanged
+                                            : PdfStatus.Modified;
 
-            _db.UpsertPdfFile(_folderPath, filePath, fileName, hash, fileSize);
+            _db.UpsertPdfFile(folderPath, filePath, fileName, hash, fileSize);
             return new PdfScanResult(fileName, fileSize, hash, status);
         }
         catch (Exception ex)
@@ -137,22 +190,24 @@ public partial class MainWindow : Window
         }
     }
 
-    private string[] GetPdfs() =>
-        Directory.Exists(_folderPath)
-            ? Directory.GetFiles(_folderPath, "*.pdf", SearchOption.AllDirectories)
+    private static string[] GetPdfs(string folderPath) =>
+        Directory.Exists(folderPath)
+            ? Directory.GetFiles(folderPath, "*.pdf", SearchOption.AllDirectories)
             : [];
 
-    // Abrir ventana de generación de preguntas
+    // ── Ventanas de preguntas y práctica ───────────────────────────────────
+
     private void QuestionsBtn_Click(object sender, RoutedEventArgs e)
     {
-        var win = new GenerateQuestionsWindow(_folderPath, _db) { Owner = this };
+        if (_selectedFolder is null) return;
+        var win = new GenerateQuestionsWindow(_selectedFolder.FolderPath, _db) { Owner = this };
         win.ShowDialog();
     }
 
-    // Abrir ventana de evaluación
     private void PracticeBtn_Click(object sender, RoutedEventArgs e)
     {
-        var win = new QuizWindow(_folderPath, _db) { Owner = this };
+        if (_selectedFolder is null) return;
+        var win = new QuizWindow(_selectedFolder.FolderPath, _db) { Owner = this };
         win.ShowDialog();
     }
 }
@@ -176,7 +231,7 @@ public class PdfScanResult
         HashShort       = hash.Length >= 8 ? hash[..8] + "..." : hash;
         RawStatus       = status;
         LastSeenDisplay = DateTime.Now.ToString("dd/MM/yyyy HH:mm");
-        Status = error is not null          ? "Error"
+        Status = error is not null            ? "Error"
                : status == PdfStatus.New      ? "Nuevo"
                : status == PdfStatus.Modified ? "Modificado"
                                               : "Sin cambios";

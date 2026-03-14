@@ -62,10 +62,91 @@ public class AppDatabase
                 AnsweredAt TEXT    NOT NULL,
                 FOREIGN KEY (QuestionId) REFERENCES Questions(Id)
             );
+
+            CREATE TABLE IF NOT EXISTS Folders (
+                Id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                Name       TEXT    NOT NULL,
+                FolderPath TEXT    NOT NULL UNIQUE,
+                CreatedAt  TEXT    NOT NULL
+            );
             """);
 
         // Migraciones incrementales — falla en silencio si la columna ya existe
         TryMigrate(conn, "ALTER TABLE PdfFiles ADD COLUMN FileName TEXT NOT NULL DEFAULT ''");
+    }
+
+    // ── Folders ────────────────────────────────────────────────────────────
+
+    public List<FolderRecord> GetAllFolders()
+    {
+        using var conn = Open();
+        using var cmd  = Cmd(conn, "SELECT Id, Name, FolderPath, CreatedAt FROM Folders ORDER BY Name");
+        using var r    = cmd.ExecuteReader();
+
+        var list = new List<FolderRecord>();
+        while (r.Read())
+            list.Add(new FolderRecord
+            {
+                Id         = r.GetInt32(0),
+                Name       = r.GetString(1),
+                FolderPath = r.GetString(2),
+                CreatedAt  = DateTime.Parse(r.GetString(3))
+            });
+        return list;
+    }
+
+    /// <summary>Añade un temario. Si la ruta ya existe, no hace nada y devuelve el Id existente.</summary>
+    public int AddFolder(string name, string folderPath)
+    {
+        using var conn = Open();
+        using var cmd  = Cmd(conn, """
+            INSERT INTO Folders (Name, FolderPath, CreatedAt)
+            VALUES ($name, $path, $at)
+            ON CONFLICT(FolderPath) DO NOTHING;
+            SELECT Id FROM Folders WHERE FolderPath = $path;
+            """);
+        cmd.Parameters.AddWithValue("$name", name);
+        cmd.Parameters.AddWithValue("$path", folderPath);
+        cmd.Parameters.AddWithValue("$at",   DateTime.UtcNow.ToString("o"));
+        return Convert.ToInt32(cmd.ExecuteScalar());
+    }
+
+    /// <summary>Elimina el temario y en cascada sus PDFs, preguntas y respuestas.</summary>
+    public void DeleteFolder(int folderId)
+    {
+        using var conn = Open();
+        using var tx   = conn.BeginTransaction();
+
+        // Obtener la ruta del temario
+        using var pathCmd = Cmd(conn, "SELECT FolderPath FROM Folders WHERE Id = $id");
+        pathCmd.Parameters.AddWithValue("$id", folderId);
+        pathCmd.Transaction = tx;
+        var folderPath = pathCmd.ExecuteScalar() as string;
+        if (folderPath is null) { tx.Rollback(); return; }
+
+        Execute(conn, tx, """
+            DELETE FROM UserAnswers
+            WHERE QuestionId IN (
+                SELECT q.Id FROM Questions q
+                JOIN PdfFiles p ON p.Id = q.PdfFileId
+                WHERE p.FolderPath = $path
+            );
+            """, ("$path", folderPath));
+
+        Execute(conn, tx, """
+            DELETE FROM Questions
+            WHERE PdfFileId IN (
+                SELECT Id FROM PdfFiles WHERE FolderPath = $path
+            );
+            """, ("$path", folderPath));
+
+        Execute(conn, tx, "DELETE FROM PdfFiles WHERE FolderPath = $path",
+                ("$path", folderPath));
+
+        Execute(conn, tx, "DELETE FROM Folders WHERE Id = $id",
+                ("$id", (object)folderId));
+
+        tx.Commit();
     }
 
     // ── Settings ───────────────────────────────────────────────────────────
@@ -337,6 +418,16 @@ public class AppDatabase
     private static void Execute(SqliteConnection conn, string sql)
     {
         using var cmd = Cmd(conn, sql);
+        cmd.ExecuteNonQuery();
+    }
+
+    private static void Execute(SqliteConnection conn, SqliteTransaction tx,
+                                string sql, params (string Name, object Value)[] parameters)
+    {
+        using var cmd = Cmd(conn, sql);
+        cmd.Transaction = tx;
+        foreach (var (name, value) in parameters)
+            cmd.Parameters.AddWithValue(name, value);
         cmd.ExecuteNonQuery();
     }
 
