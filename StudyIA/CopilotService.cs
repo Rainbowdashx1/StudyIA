@@ -22,7 +22,7 @@ public record GeneratedQuestion(
 public class CopilotService(string githubToken)
 {
     private const string GhModelsEndpoint = "https://models.inference.ai.azure.com";
-    private const string Model            = "gpt-4o";
+    private const string Model            = "gpt-5";
 
     private static readonly JsonSerializerOptions JsonOpts = new()
         { PropertyNameCaseInsensitive = true };

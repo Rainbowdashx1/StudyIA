@@ -10,7 +10,7 @@ public partial class GenerateQuestionsWindow : Window
     private CancellationTokenSource? _cts;
 
     private const string KeyGithubToken  = "GithubToken";
-    private const int    MaxCharsPerFile = 30_000;
+    private const int    MaxCharsPerFile = 200_000;
 
     public GenerateQuestionsWindow(string folderPath, AppDatabase db)
     {
