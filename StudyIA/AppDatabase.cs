@@ -468,6 +468,14 @@ public class AppDatabase
         try   { Execute(conn, sql); }
         catch { /* columna / índice ya existe, se ignora */ }
     }
+    public int GetQuestionCountForSection(int pdfSectionId)
+    {
+        using var conn = Open();
+        using var cmd  = Cmd(conn, "SELECT COUNT(*) FROM Questions WHERE PdfSectionId = $sid");
+        cmd.Parameters.AddWithValue("$sid", pdfSectionId);
+        return Convert.ToInt32(cmd.ExecuteScalar());
+    }
+
     public bool HasSections(int pdfFileId)
     {
         using var conn = Open();

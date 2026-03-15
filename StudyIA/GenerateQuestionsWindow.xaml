@@ -109,6 +109,13 @@
                     Margin="0,0,8,0"
                     Background="#0078D4" Foreground="White" FontWeight="SemiBold"
                     Click="Generate_Click"/>
+            <Button x:Name="GenerateByOutlineBtn"
+                    Content="🗂  Por secciones (exp.)"
+                    Height="32" Padding="12,0"
+                    Margin="0,0,8,0"
+                    Background="#107C10" Foreground="White" FontWeight="SemiBold"
+                    ToolTip="Detecta automáticamente las secciones del PDF e infiere cuántas preguntas generar por cada una."
+                    Click="GenerateByOutline_Click"/>
             <Button Content="Cerrar"
                     Height="32" Width="80"
                     Click="Close_Click"/>
