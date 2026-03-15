@@ -134,9 +134,9 @@ public static class PdfTextService
             using var reader = new PdfReader(filePath);
             using var doc    = new PdfDocument(reader);
 
-            var bookmarks = TryExtractBookmarks(doc);
-            if (bookmarks.Count > 0)
-                return FinalizeOutline(bookmarks, doc.GetNumberOfPages());
+            //var bookmarks = TryExtractBookmarks(doc);
+            //if (bookmarks.Count > 0)
+                //return FinalizeOutline(bookmarks, doc.GetNumberOfPages());
 
             return ExtractOutlineHeuristic(doc);
         }
@@ -272,21 +272,41 @@ public static class PdfTextService
 /// </summary>
 internal sealed class FontSizeListener : IEventListener
 {
-    private readonly List<(string Text, float FontSize)> _fragments = [];
+    private readonly record struct Fragment(string Text, float FontSize, float StartX, float EndX);
+
+    private readonly List<Fragment> _fragments = [];
 
     public void EventOccurred(IEventData data, EventType type)
     {
         if (type != EventType.RENDER_TEXT) return;
         if (data is not TextRenderInfo tri)  return;
 
-        var text = tri.GetText().Trim();
-        if (string.IsNullOrWhiteSpace(text)) return;
+        var text = tri.GetText();
+        if (string.IsNullOrEmpty(text) || text.Contains('\n')) return;
 
-        // Actual rendered font size = declared size * scale from matrix
-        var fontSize = tri.GetFontSize() * tri.GetTextMatrix().Get(0);
-        if (fontSize <= 0) fontSize = tri.GetFontSize();
+        // Use the ascent-to-descent distance as a stable font-size proxy.
+        // This is consistent across all glyphs of the same font/size, including
+        // accented characters rendered via composite/CID fonts where the text
+        // matrix element [0] can vary per glyph and produce misleading values.
+        float fontSize;
+        try
+        {
+            var ascentY  = tri.GetAscentLine().GetStartPoint().Get(1);
+            var descentY = tri.GetDescentLine().GetStartPoint().Get(1);
+            fontSize     = MathF.Abs(ascentY - descentY);
+        }
+        catch
+        {
+            var scale = tri.GetTextMatrix().Get(0);
+            fontSize  = MathF.Abs(tri.GetFontSize() * (scale != 0f ? scale : 1f));
+        }
 
-        _fragments.Add((text, MathF.Abs(fontSize)));
+        if (fontSize <= 0) return;
+
+        var startX = tri.GetBaseline().GetStartPoint().Get(0);
+        var endX   = tri.GetBaseline().GetEndPoint().Get(0);
+
+        _fragments.Add(new Fragment(text, fontSize, startX, endX));
     }
 
     public ICollection<EventType> GetSupportedEvents() =>
@@ -294,7 +314,7 @@ internal sealed class FontSizeListener : IEventListener
 
     /// <summary>
     /// Returns the text of the largest-font fragment that qualifies as a heading
-    /// (3-100 characters, no newlines). Returns empty string when nothing qualifies.
+    /// (3–100 characters). Returns empty string when nothing qualifies.
     /// </summary>
     public string GetDominantHeading()
     {
@@ -302,22 +322,39 @@ internal sealed class FontSizeListener : IEventListener
 
         var maxSize = _fragments.Max(f => f.FontSize);
 
-        // A heading must be rendered at least 10% larger than the median font size
+        // A heading must be rendered at least 10 % larger than the median font size.
         var sorted = _fragments.Select(f => f.FontSize).Order().ToList();
         var median = sorted[sorted.Count / 2];
 
-        // Collect all fragments at the maximum size and concatenate adjacent ones
+        // NOTE: length is NOT filtered per-fragment here.
+        // iText7 can split a single word into many single-character render events
+        // (especially for accented chars in CID fonts). Filtering by length would
+        // silently drop those characters, e.g. "Introducción" → "Introduc".
         var candidates = _fragments
             .Where(f => f.FontSize >= maxSize * 0.97f &&
                         f.FontSize >  median * 1.10f)
-            .Select(f => f.Text.Trim())
-            .Where(t => t.Length is >= 3 and <= 100 && !t.Contains('\n'))
             .ToList();
 
         if (candidates.Count == 0) return string.Empty;
 
-        // Join adjacent same-line fragments (they may be split mid-word by iText)
-        var joined = string.Join(" ", candidates).Trim();
-        return joined.Length <= 100 ? joined : joined[..100].Trim();
+        // Smart join: inspect the X-axis gap between consecutive fragments.
+        // If the gap is larger than ~25 % of the rendered font size it is a real
+        // word-space; otherwise the fragments belong to the same word and are
+        // concatenated directly (no inserted space).
+        var sb = new System.Text.StringBuilder();
+        for (var i = 0; i < candidates.Count; i++)
+        {
+            var frag = candidates[i];
+            if (i > 0)
+            {
+                var prev = candidates[i - 1];
+                if (frag.StartX - prev.EndX > frag.FontSize * 0.25f)
+                    sb.Append(' ');
+            }
+            sb.Append(frag.Text);
+        }
+
+        var joined = sb.ToString().Trim();
+        return joined.Length is >= 3 and <= 100 ? joined : string.Empty;
     }
 }
