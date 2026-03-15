@@ -37,6 +37,7 @@ public class AppDatabase
                 Id         INTEGER PRIMARY KEY AUTOINCREMENT,
                 FolderPath TEXT    NOT NULL,
                 FilePath   TEXT    NOT NULL UNIQUE,
+                FileName   TEXT    NOT NULL DEFAULT '',
                 FileHash   TEXT    NOT NULL,
                 FileSize   INTEGER NOT NULL,
                 LastSeen   TEXT    NOT NULL
@@ -45,12 +46,14 @@ public class AppDatabase
             CREATE TABLE IF NOT EXISTS Questions (
                 Id             INTEGER PRIMARY KEY AUTOINCREMENT,
                 PdfFileId      INTEGER NOT NULL,
+                PdfSectionId   INTEGER,
                 PageNumber     INTEGER NOT NULL DEFAULT 0,
                 Context        TEXT    NOT NULL DEFAULT '',
                 QuestionText   TEXT    NOT NULL,
                 ExpectedAnswer TEXT    NOT NULL,
                 CreatedAt      TEXT    NOT NULL,
-                FOREIGN KEY (PdfFileId) REFERENCES PdfFiles(Id)
+                FOREIGN KEY (PdfFileId)    REFERENCES PdfFiles(Id),
+                FOREIGN KEY (PdfSectionId) REFERENCES PdfSections(Id)
             );
 
             CREATE TABLE IF NOT EXISTS UserAnswers (
@@ -69,10 +72,21 @@ public class AppDatabase
                 FolderPath TEXT    NOT NULL UNIQUE,
                 CreatedAt  TEXT    NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS PdfSections (
+                Id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                PdfFileId INTEGER NOT NULL,
+                Title     TEXT    NOT NULL,
+                StartPage INTEGER NOT NULL,
+                EndPage   INTEGER NOT NULL,
+                FOREIGN KEY (PdfFileId) REFERENCES PdfFiles(Id)
+            );
             """);
 
         // Migraciones incrementales — falla en silencio si la columna ya existe
-        TryMigrate(conn, "ALTER TABLE PdfFiles ADD COLUMN FileName TEXT NOT NULL DEFAULT ''");
+        TryMigrate(conn, "ALTER TABLE PdfFiles   ADD COLUMN FileName TEXT NOT NULL DEFAULT ''");
+        TryMigrate(conn, "ALTER TABLE Questions  ADD COLUMN PdfSectionId INTEGER REFERENCES PdfSections(Id)");
+
     }
 
     // ── Folders ────────────────────────────────────────────────────────────
@@ -274,7 +288,7 @@ public class AppDatabase
         using var cmd  = Cmd(conn, """
             SELECT q.Id, q.PdfFileId, q.PageNumber, q.Context,
                    q.QuestionText, q.ExpectedAnswer, q.CreatedAt,
-                   p.FileName
+                   q.PdfSectionId, p.FileName
             FROM   Questions q
             JOIN   PdfFiles  p ON p.Id = q.PdfFileId
             WHERE  p.FolderPath = $folder
@@ -294,7 +308,8 @@ public class AppDatabase
                 QuestionText   = r.GetString(4),
                 ExpectedAnswer = r.GetString(5),
                 CreatedAt      = DateTime.Parse(r.GetString(6)),
-                FileName       = r.GetString(7)
+                PdfSectionId   = r.IsDBNull(7) ? null : r.GetInt32(7),
+                FileName       = r.GetString(8)
             });
         return list;
     }
@@ -309,13 +324,29 @@ public class AppDatabase
                             string questionText, string expectedAnswer)
     {
         using var conn = Open();
+
+        int? pdfSectionId = null;
+        using (var secCmd = Cmd(conn, """
+            SELECT Id FROM PdfSections
+            WHERE PdfFileId = $pid AND StartPage <= $page AND EndPage >= $page
+            LIMIT 1
+            """))
+        {
+            secCmd.Parameters.AddWithValue("$pid",  pdfFileId);
+            secCmd.Parameters.AddWithValue("$page", pageNumber);
+            var secResult = secCmd.ExecuteScalar();
+            if (secResult is not null and not DBNull)
+                pdfSectionId = Convert.ToInt32(secResult);
+        }
+
         using var cmd  = Cmd(conn, """
             INSERT INTO Questions
-                (PdfFileId, PageNumber, Context, QuestionText, ExpectedAnswer, CreatedAt)
-            VALUES ($pid, $page, $ctx, $q, $a, $created);
+                (PdfFileId, PdfSectionId, PageNumber, Context, QuestionText, ExpectedAnswer, CreatedAt)
+            VALUES ($pid, $secId, $page, $ctx, $q, $a, $created);
             SELECT last_insert_rowid();
             """);
         cmd.Parameters.AddWithValue("$pid",     pdfFileId);
+        cmd.Parameters.AddWithValue("$secId",   pdfSectionId.HasValue ? (object)pdfSectionId.Value : DBNull.Value);
         cmd.Parameters.AddWithValue("$page",    pageNumber);
         cmd.Parameters.AddWithValue("$ctx",     context);
         cmd.Parameters.AddWithValue("$q",       questionText);
@@ -330,7 +361,7 @@ public class AppDatabase
         using var cmd  = Cmd(conn, """
             SELECT q.Id, q.PdfFileId, q.PageNumber, q.Context,
                    q.QuestionText, q.ExpectedAnswer, q.CreatedAt,
-                   p.FileName
+                   q.PdfSectionId, p.FileName
             FROM   Questions q
             JOIN   PdfFiles  p ON p.Id = q.PdfFileId
             WHERE  q.PdfFileId = $pid
@@ -350,7 +381,8 @@ public class AppDatabase
                 QuestionText   = r.GetString(4),
                 ExpectedAnswer = r.GetString(5),
                 CreatedAt      = DateTime.Parse(r.GetString(6)),
-                FileName       = r.GetString(7)
+                PdfSectionId   = r.IsDBNull(7) ? null : r.GetInt32(7),
+                FileName       = r.GetString(8)
             });
         return list;
     }
@@ -435,5 +467,54 @@ public class AppDatabase
     {
         try   { Execute(conn, sql); }
         catch { /* columna / índice ya existe, se ignora */ }
+    }
+    public bool HasSections(int pdfFileId)
+    {
+        using var conn = Open();
+        using var cmd = Cmd(conn, "SELECT COUNT(*) FROM PdfSections WHERE PdfFileId = $pid");
+        cmd.Parameters.AddWithValue("$pid", pdfFileId);
+        return Convert.ToInt32(cmd.ExecuteScalar()) > 0;
+    }
+
+    public void SaveSections(int pdfFileId, List<PdfSection> sections)
+    {
+        using var conn = Open();
+        using var tx = conn.BeginTransaction();
+        Execute(conn, tx, "DELETE FROM PdfSections WHERE PdfFileId = $pid",
+                ("$pid", (object)pdfFileId));
+        foreach (var s in sections)
+        {
+            using var ins = Cmd(conn,
+                "INSERT INTO PdfSections (PdfFileId, Title, StartPage, EndPage) " +
+                "VALUES ($pid, $title, $start, $end)");
+            ins.Transaction = tx;
+            ins.Parameters.AddWithValue("$pid", pdfFileId);
+            ins.Parameters.AddWithValue("$title", s.Title);
+            ins.Parameters.AddWithValue("$start", s.StartPage);
+            ins.Parameters.AddWithValue("$end", s.EndPage);
+            ins.ExecuteNonQuery();
+        }
+        tx.Commit();
+    }
+
+    public List<PdfSection> GetSections(int pdfFileId)
+    {
+        using var conn = Open();
+        using var cmd = Cmd(conn,
+            "SELECT Id, PdfFileId, Title, StartPage, EndPage " +
+            "FROM PdfSections WHERE PdfFileId = $pid ORDER BY StartPage");
+        cmd.Parameters.AddWithValue("$pid", pdfFileId);
+        using var r = cmd.ExecuteReader();
+        var list = new List<PdfSection>();
+        while (r.Read())
+            list.Add(new PdfSection
+            {
+                Id = r.GetInt32(0),
+                PdfFileId = r.GetInt32(1),
+                Title = r.GetString(2),
+                StartPage = r.GetInt32(3),
+                EndPage = r.GetInt32(4)
+            });
+        return list;
     }
 }
