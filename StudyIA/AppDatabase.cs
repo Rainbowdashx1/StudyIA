@@ -355,6 +355,31 @@ public class AppDatabase
         return Convert.ToInt32(cmd.ExecuteScalar());
     }
 
+    /// <summary>
+    /// Guarda una pregunta vinculando directamente al <paramref name="pdfSectionId"/> indicado,
+    /// sin necesidad de resolver la sección por número de página.
+    /// Usar cuando el origen de la pregunta ya se conoce con certeza (e.g. batch multi-sección).
+    /// </summary>
+    public int SaveQuestionForSection(int pdfFileId, int pdfSectionId, int pageNumber,
+                                      string context, string questionText, string expectedAnswer)
+    {
+        using var conn = Open();
+        using var cmd  = Cmd(conn, """
+            INSERT INTO Questions
+                (PdfFileId, PdfSectionId, PageNumber, Context, QuestionText, ExpectedAnswer, CreatedAt)
+            VALUES ($pid, $secId, $page, $ctx, $q, $a, $created);
+            SELECT last_insert_rowid();
+            """);
+        cmd.Parameters.AddWithValue("$pid",     pdfFileId);
+        cmd.Parameters.AddWithValue("$secId",   pdfSectionId);
+        cmd.Parameters.AddWithValue("$page",    pageNumber);
+        cmd.Parameters.AddWithValue("$ctx",     context);
+        cmd.Parameters.AddWithValue("$q",       questionText);
+        cmd.Parameters.AddWithValue("$a",       expectedAnswer);
+        cmd.Parameters.AddWithValue("$created", DateTime.UtcNow.ToString("o"));
+        return Convert.ToInt32(cmd.ExecuteScalar());
+    }
+
     public List<QuestionRecord> GetQuestionsForFile(int pdfFileId)
     {
         using var conn = Open();

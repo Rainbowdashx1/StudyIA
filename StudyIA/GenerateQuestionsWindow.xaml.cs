@@ -9,8 +9,10 @@ public partial class GenerateQuestionsWindow : Window
     private readonly string      _folderPath;
     private CancellationTokenSource? _cts;
 
-    private const string KeyGithubToken  = "GithubToken";
-    private const int    MaxCharsPerFile = 200_000;
+    private const string KeyGithubToken        = "GithubToken";
+    private const int    MaxCharsPerFile        = 200_000;
+    private const int    CharBudgetPerBatch     = 28_000;   // ~7 000 tokens de contenido por request
+    private const int    MaxCharsPerSectionInBatch = 12_000; // tope por sección dentro de un batch
 
     public GenerateQuestionsWindow(string folderPath, AppDatabase db)
     {
@@ -259,15 +261,11 @@ public partial class GenerateQuestionsWindow : Window
                     continue;
                 }
 
-                // 3. Procesar sección por sección
-                for (var si = 0; si < sections.Count; si++)
+                // 3. Construir lista de secciones pendientes con su contenido recortado
+                var pending = new List<SectionBatchItem>();
+                foreach (var section in sections)
                 {
-                    if (_cts.Token.IsCancellationRequested) break;
-
-                    var section = sections[si];
-
-                    if (_db.GetQuestionCountForSection(section.Id) > 0)
-                        continue; // ya tiene preguntas, saltar
+                    if (_db.GetQuestionCountForSection(section.Id) > 0) continue;
 
                     var sectionPages = allPages
                         .Where(p => p.Page >= section.StartPage && p.Page <= section.EndPage)
@@ -277,31 +275,45 @@ public partial class GenerateQuestionsWindow : Window
 
                     var pageCount  = section.EndPage - section.StartPage + 1;
                     var toGenerate = InferQuestionCount(pageCount);
-                    var trimmed    = PdfTextService.Trim(sectionPages, MaxCharsPerFile);
+                    var trimmed    = PdfTextService.Trim(sectionPages, MaxCharsPerSectionInBatch);
 
-                    var fileBase   = (double)fi / files.Count * 100;
-                    var secOffset  = (double)si / sections.Count / files.Count * 100;
-                    GenProgress.Value = fileBase + secOffset;
-                    GenStatus.Text    = $"[{file.FileName}] «{section.Title}» " +
-                                        $"({section.PageRange}) → {toGenerate} pregunta(s)…";
+                    pending.Add(new SectionBatchItem(
+                        section.Id, section.Title, section.PageRange,
+                        toGenerate, trimmed));
+                }
 
-                    List<GeneratedQuestion> questions;
+                // 4. Agrupar en batches por presupuesto de caracteres y enviar cada uno
+                var batches = BuildSectionBatches(pending, CharBudgetPerBatch);
+                for (var bi = 0; bi < batches.Count; bi++)
+                {
+                    if (_cts.Token.IsCancellationRequested) break;
+
+                    var batch  = batches[bi];
+                    var titles = string.Join(", ", batch.Select(b => $"«{b.SectionTitle}»"));
+
+                    var fileBase = (double)fi / files.Count * 100;
+                    var batBase  = (double)bi / Math.Max(1, batches.Count) / files.Count * 100;
+                    GenProgress.Value = fileBase + batBase;
+                    GenStatus.Text    = $"[{file.FileName}] Batch {bi + 1}/{batches.Count} " +
+                                        $"({batch.Count} sección(es)): {titles}…";
+
+                    List<SectionedQuestion> results;
                     try
                     {
-                        questions = await service.GenerateAsync(trimmed, toGenerate, _cts.Token);
+                        results = await service.GenerateForSectionsAsync(batch, _cts.Token);
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)
                     {
-                        GenStatus.Text = $"⚠️ Error en «{section.Title}»: {ex.Message}";
+                        GenStatus.Text = $"⚠️ Error en batch {bi + 1}: {ex.Message}";
                         await Task.Delay(1500, _cts.Token);
                         continue;
                     }
 
-                    foreach (var q in questions)
-                        _db.SaveQuestion(file.Id, q.PageNumber, q.Context,
-                                         q.QuestionText, q.ExpectedAnswer);
+                    foreach (var q in results)
+                        _db.SaveQuestionForSection(file.Id, q.SectionId, q.PageNumber,
+                                                   q.Context, q.QuestionText, q.ExpectedAnswer);
 
-                    generated += questions.Count;
+                    generated += results.Count;
                 }
             }
 
@@ -323,6 +335,40 @@ public partial class GenerateQuestionsWindow : Window
             _cts?.Dispose();
             _cts = null;
         }
+    }
+
+    /// <summary>
+    /// Agrupa secciones pendientes en batches cuyo contenido total no supere
+    /// <paramref name="charBudget"/> caracteres, respetando que cada sección
+    /// ya viene recortada al máximo por sección.
+    /// </summary>
+    private static List<List<SectionBatchItem>> BuildSectionBatches(
+        List<SectionBatchItem> pending, int charBudget)
+    {
+        var batches      = new List<List<SectionBatchItem>>();
+        var current      = new List<SectionBatchItem>();
+        var currentChars = 0;
+
+        foreach (var item in pending)
+        {
+            // +200 de overhead por separadores, títulos y formato del prompt
+            var itemChars = item.Pages.Sum(p => p.Text.Length) + item.SectionTitle.Length + 200;
+
+            if (current.Count > 0 && currentChars + itemChars > charBudget)
+            {
+                batches.Add(current);
+                current      = [];
+                currentChars = 0;
+            }
+
+            current.Add(item);
+            currentChars += itemChars;
+        }
+
+        if (current.Count > 0)
+            batches.Add(current);
+
+        return batches;
     }
 
     /// <summary>
