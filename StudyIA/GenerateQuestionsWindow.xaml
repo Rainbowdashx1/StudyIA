@@ -69,19 +69,9 @@
             </DataGrid.Columns>
         </DataGrid>
 
-        <!-- ── Cantidad deseada + resumen ── -->
+        <!-- ── Resumen ── -->
         <StackPanel Grid.Row="5" Margin="0,0,0,0">
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,0,6">
-                <TextBlock Text="Total de preguntas deseadas:"
-                           VerticalAlignment="Center" Margin="0,0,8,0"/>
-                <TextBox x:Name="CountBox"
-                         Text="10" Width="64" Height="28"
-                         VerticalContentAlignment="Center"
-                         TextAlignment="Center"/>
-            </StackPanel>
             <TextBlock x:Name="ExistingText" FontSize="12" Foreground="#555555"/>
-            <TextBlock x:Name="NeededText"   FontSize="12" Foreground="#0078D4"
-                       FontWeight="SemiBold" Margin="0,2,0,0"/>
         </StackPanel>
 
         <!-- ── Progreso ── -->
@@ -103,12 +93,6 @@
                     Margin="0,0,8,0"
                     Visibility="Collapsed"
                     Click="CancelGen_Click"/>
-            <Button x:Name="GenerateBtn"
-                    Content="&#x1F4DD;  Generar preguntas"
-                    Height="32" Padding="16,0"
-                    Margin="0,0,8,0"
-                    Background="#0078D4" Foreground="White" FontWeight="SemiBold"
-                    Click="Generate_Click"/>
             <Button x:Name="GenerateByOutlineBtn"
                     Content="🗂  Por secciones (exp.)"
                     Height="32" Padding="12,0"

@@ -47,6 +47,40 @@ public class CopilotService(string githubToken)
     private static readonly JsonSerializerOptions JsonOpts = new()
         { PropertyNameCaseInsensitive = true };
 
+    /// <summary>
+    /// Extrae el bloque JSON de la respuesta del modelo, eliminando bloques de código
+    /// markdown y cualquier texto introductorio que el modelo pueda añadir.
+    /// </summary>
+    private static string ExtractJsonFromResponse(string raw)
+    {
+        var text = raw.Trim();
+
+        // Eliminar bloque de código markdown si el modelo lo añadió
+        if (text.StartsWith("```"))
+        {
+            var start = text.IndexOf('\n') + 1;
+            var end   = text.LastIndexOf("```");
+            if (end > start)
+                text = text[start..end].Trim();
+        }
+
+        // Si aún hay texto antes del JSON, buscar el delimitador de array u objeto
+        if (!text.StartsWith("[") && !text.StartsWith("{"))
+        {
+            var arrStart = text.IndexOf('[');
+            var arrEnd   = text.LastIndexOf(']');
+            if (arrStart >= 0 && arrEnd > arrStart)
+                return text[arrStart..(arrEnd + 1)];
+
+            var objStart = text.IndexOf('{');
+            var objEnd   = text.LastIndexOf('}');
+            if (objStart >= 0 && objEnd > objStart)
+                return text[objStart..(objEnd + 1)];
+        }
+
+        return text;
+    }
+
     private readonly ChatClient _chat = new(
         model: Model,
         credential: new ApiKeyCredential(githubToken),
@@ -83,16 +117,7 @@ public class CopilotService(string githubToken)
         ];
 
         var result = await _chat.CompleteChatAsync(messages, cancellationToken: ct);
-        var json   = result.Value.Content[0].Text.Trim();
-
-        // Eliminar bloque de código markdown si el modelo lo añadió
-        if (json.StartsWith("```"))
-        {
-            var start = json.IndexOf('\n') + 1;
-            var end   = json.LastIndexOf("```");
-            if (end > start)
-                json = json[start..end].Trim();
-        }
+        var json   = ExtractJsonFromResponse(result.Value.Content[0].Text);
 
         var dtos = JsonSerializer.Deserialize<List<QuestionDto>>(json, JsonOpts)
                    ?? throw new InvalidOperationException("La IA no devolvió un JSON válido.");
@@ -140,14 +165,7 @@ public class CopilotService(string githubToken)
         ];
 
         var result = await _chat.CompleteChatAsync(messages, cancellationToken: ct);
-        var json   = result.Value.Content[0].Text.Trim();
-
-        if (json.StartsWith("```"))
-        {
-            var s = json.IndexOf('\n') + 1;
-            var e = json.LastIndexOf("```");
-            if (e > s) json = json[s..e].Trim();
-        }
+        var json   = ExtractJsonFromResponse(result.Value.Content[0].Text);
 
         var dto = JsonSerializer.Deserialize<EvalDto>(json, JsonOpts)
                   ?? throw new InvalidOperationException("Respuesta de evaluación no válida.");
@@ -214,15 +232,7 @@ public class CopilotService(string githubToken)
         ];
 
         var result = await _chat.CompleteChatAsync(messages, cancellationToken: ct);
-        var json   = result.Value.Content[0].Text.Trim();
-
-        if (json.StartsWith("```"))
-        {
-            var start = json.IndexOf('\n') + 1;
-            var end   = json.LastIndexOf("```");
-            if (end > start)
-                json = json[start..end].Trim();
-        }
+        var json   = ExtractJsonFromResponse(result.Value.Content[0].Text);
 
         var dtos = JsonSerializer.Deserialize<List<SectionedQuestionDto>>(json, JsonOpts)
                    ?? throw new InvalidOperationException("La IA no devolvió un JSON válido.");
